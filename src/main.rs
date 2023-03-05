@@ -1,32 +1,26 @@
-use std::error::Error;
-
 use windows::{
-    core::PCSTR,
     s,
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
-        Graphics::Gdi::{
-            BeginPaint, EndPaint, FillRect, COLOR_WINDOW, COLOR_WINDOWFRAME, HBRUSH, PAINTSTRUCT,
-        },
+        Graphics::Gdi::{BeginPaint, EndPaint, FillRect, HBRUSH, PAINTSTRUCT},
         System::LibraryLoader::GetModuleHandleA,
         UI::WindowsAndMessaging::{
             CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
             RegisterClassA, ShowWindow, TranslateMessage, CW_USEDEFAULT, MSG, SW_SHOWDEFAULT,
-            WINDOW_EX_STYLE, WM_DESTROY, WM_PAINT, WM_QUIT, WNDCLASSA, WNDCLASS_STYLES,
-            WS_OVERLAPPEDWINDOW,
+            WINDOW_EX_STYLE, WM_DESTROY, WM_PAINT, WM_QUIT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
         },
     },
 };
 
 use windows::core::Result as WinResult;
 
-unsafe extern "system" fn WindowProc(
+unsafe extern "system" fn window_proc(
     hwnd: HWND,
-    uMsg: u32,
-    wParam: WPARAM,
-    lParam: LPARAM,
+    u_msg: u32,
+    w_param: WPARAM,
+    l_param: LPARAM,
 ) -> LRESULT {
-    return match uMsg {
+    return match u_msg {
         WM_DESTROY => {
             PostQuitMessage(0);
             LRESULT(0)
@@ -38,7 +32,7 @@ unsafe extern "system" fn WindowProc(
             EndPaint(hwnd, &ps);
             LRESULT(0)
         }
-        _ => DefWindowProcA(hwnd, uMsg, wParam, lParam),
+        _ => DefWindowProcA(hwnd, u_msg, w_param, l_param),
     };
 }
 
@@ -50,7 +44,7 @@ fn main() -> WinResult<()> {
 
     let instance = unsafe { GetModuleHandleA(None)? };
 
-    wc.lpfnWndProc = Some(WindowProc);
+    wc.lpfnWndProc = Some(window_proc);
     wc.hInstance = instance;
     wc.lpszClassName = class_name;
 
