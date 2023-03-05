@@ -1,8 +1,8 @@
 use windows::{
     s,
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
-        Graphics::Gdi::{BeginPaint, EndPaint, FillRect, HBRUSH, PAINTSTRUCT},
+        Foundation::{HWND, LPARAM, LRESULT, S_OK, WPARAM},
+        Graphics::Direct3D11::{D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL},
         System::LibraryLoader::GetModuleHandleA,
         UI::WindowsAndMessaging::{
             CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, GetWindowLongPtrA,
@@ -14,6 +14,10 @@ use windows::{
 };
 
 use windows::core::Result as WinResult;
+
+use crate::device_resources::device_resources::{DeviceResources, DEFAULT_HEIGHT, DEFAULT_WIDTH};
+
+mod device_resources;
 
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
@@ -29,24 +33,29 @@ unsafe extern "system" fn window_proc(
         WM_PAINT => {
             unsafe {
                 let ptr = GetWindowLongPtrA(hwnd, GWLP_USERDATA);
-                let ptr = std::ptr::NonNull::<CustomObject>::new(ptr as _);
-                if let Some(mut co) = ptr {
-                    println!("Retrieved custom object. Number: {}", co.as_ref().num);
-                    co.as_mut().num = co.as_ref().num + 1;
+                if let Some(dr) = std::ptr::NonNull::<DeviceResources>::new(ptr as _) {
+                    let dr = dr.as_ref();
+
+                    dr.context.ClearDepthStencilView(
+                        &dr.dsv,
+                        (D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL).0,
+                        1f32,
+                        0,
+                    );
+
+                    let clear_color = vec![1f32, 0f32, 0f32, 1f32];
+                    dr.context
+                        .ClearRenderTargetView(&dr.rtv, clear_color.as_ptr());
+
+                    if S_OK != dr.swapchain.Present(1, 0) {
+                        panic!("Failed to present!");
+                    }
                 }
             }
-            let mut ps = PAINTSTRUCT::default();
-            let hdc = BeginPaint(hwnd, &mut ps);
-            FillRect(hdc, &ps.rcPaint, HBRUSH::default());
-            EndPaint(hwnd, &ps);
             LRESULT(0)
         }
         _ => DefWindowProcA(hwnd, u_msg, w_param, l_param),
     };
-}
-
-struct CustomObject {
-    num: i32,
 }
 
 fn main() -> WinResult<()> {
@@ -73,8 +82,8 @@ fn main() -> WinResult<()> {
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            DEFAULT_WIDTH as i32,
+            DEFAULT_HEIGHT as i32,
             None,
             None,
             instance,
@@ -86,9 +95,10 @@ fn main() -> WinResult<()> {
         ShowWindow(hwnd, SW_SHOWDEFAULT);
     }
 
-    let co = CustomObject { num: 11081994 };
+    let device_resources = DeviceResources::bind_to_wnd(hwnd)?;
+
     unsafe {
-        SetWindowLongPtrA(hwnd, GWLP_USERDATA, &co as *const _ as _);
+        SetWindowLongPtrA(hwnd, GWLP_USERDATA, &device_resources as *const _ as _);
     }
 
     let mut msg = MSG::default();
