@@ -5,9 +5,10 @@ use windows::{
         Graphics::Gdi::{BeginPaint, EndPaint, FillRect, HBRUSH, PAINTSTRUCT},
         System::LibraryLoader::GetModuleHandleA,
         UI::WindowsAndMessaging::{
-            CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
-            RegisterClassA, ShowWindow, TranslateMessage, CW_USEDEFAULT, MSG, SW_SHOWDEFAULT,
-            WINDOW_EX_STYLE, WM_DESTROY, WM_PAINT, WM_QUIT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+            CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, GetWindowLongPtrA,
+            PostQuitMessage, RegisterClassA, SetWindowLongPtrA, ShowWindow, TranslateMessage,
+            CW_USEDEFAULT, GWLP_USERDATA, MSG, SW_SHOWDEFAULT, WINDOW_EX_STYLE, WM_DESTROY,
+            WM_PAINT, WM_QUIT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
         },
     },
 };
@@ -26,6 +27,14 @@ unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         WM_PAINT => {
+            unsafe {
+                let ptr = GetWindowLongPtrA(hwnd, GWLP_USERDATA);
+                let ptr = std::ptr::NonNull::<CustomObject>::new(ptr as _);
+                if let Some(mut co) = ptr {
+                    println!("Retrieved custom object. Number: {}", co.as_ref().num);
+                    co.as_mut().num = co.as_ref().num + 1;
+                }
+            }
             let mut ps = PAINTSTRUCT::default();
             let hdc = BeginPaint(hwnd, &mut ps);
             FillRect(hdc, &ps.rcPaint, HBRUSH::default());
@@ -34,6 +43,10 @@ unsafe extern "system" fn window_proc(
         }
         _ => DefWindowProcA(hwnd, u_msg, w_param, l_param),
     };
+}
+
+struct CustomObject {
+    num: i32,
 }
 
 fn main() -> WinResult<()> {
@@ -71,6 +84,11 @@ fn main() -> WinResult<()> {
 
     unsafe {
         ShowWindow(hwnd, SW_SHOWDEFAULT);
+    }
+
+    let co = CustomObject { num: 11081994 };
+    unsafe {
+        SetWindowLongPtrA(hwnd, GWLP_USERDATA, &co as *const _ as _);
     }
 
     let mut msg = MSG::default();
