@@ -45,7 +45,7 @@ pub mod device_resources {
         factory: IDXGIFactory7,
         pub viewport: D3D11_VIEWPORT,
         pub dsv: ID3D11DepthStencilView,
-        pub rtv: ID3D11RenderTargetView,
+        pub rtv: Vec<ID3D11RenderTargetView>,
         pub vs: ID3D11VertexShader,
         pub ps: ID3D11PixelShader,
         pub il: ID3D11InputLayout,
@@ -155,7 +155,10 @@ pub mod device_resources {
             let mut vs = None;
             let mut il = None;
 
-            let cwd = std::env::current_dir().unwrap().join("target").join("debug");
+            let cwd = std::env::current_dir()
+                .unwrap()
+                .join("target")
+                .join("debug");
 
             unsafe {
                 let bytes = std::fs::read(cwd.join("vs.cso")).unwrap();
@@ -186,7 +189,7 @@ pub mod device_resources {
                 factory: factory,
                 viewport: viewport,
                 dsv: dsv.unwrap(),
-                rtv: rtv.unwrap(),
+                rtv: vec![rtv.unwrap()],
                 vs: vs.unwrap(),
                 ps: ps.unwrap(),
                 il: il.unwrap(),
