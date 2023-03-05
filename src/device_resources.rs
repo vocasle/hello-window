@@ -39,7 +39,7 @@ pub mod device_resources {
     pub const DEFAULT_HEIGHT: u32 = 720;
 
     pub struct DeviceResources {
-        device: ID3D11Device,
+        pub device: ID3D11Device,
         pub context: ID3D11DeviceContext,
         pub swapchain: IDXGISwapChain1,
         factory: IDXGIFactory7,
