@@ -1,5 +1,4 @@
 pub mod device_resources {
-    use std::fs::OpenOptions;
 
     use windows::{
         s,
@@ -8,16 +7,18 @@ pub mod device_resources {
             Graphics::{
                 Direct3D::D3D_DRIVER_TYPE_HARDWARE,
                 Direct3D11::{
-                    D3D11CreateDevice, ID3D11DepthStencilView, ID3D11Device, ID3D11DeviceContext,
-                    ID3D11InputLayout, ID3D11PixelShader, ID3D11RenderTargetView, ID3D11Texture2D,
-                    ID3D11VertexShader, D3D11_BIND_DEPTH_STENCIL, D3D11_CPU_ACCESS_FLAG,
-                    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_DEBUG,
-                    D3D11_DEPTH_STENCIL_VIEW_DESC, D3D11_DEPTH_STENCIL_VIEW_DESC_0,
-                    D3D11_DSV_DIMENSION_TEXTURE2D, D3D11_INPUT_ELEMENT_DESC,
-                    D3D11_INPUT_PER_VERTEX_DATA, D3D11_RENDER_TARGET_VIEW_DESC,
-                    D3D11_RENDER_TARGET_VIEW_DESC_0, D3D11_RESOURCE_MISC_FLAG,
-                    D3D11_RTV_DIMENSION_TEXTURE2D, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
-                    D3D11_USAGE_DEFAULT, D3D11_VIEWPORT,
+                    D3D11CreateDevice, ID3D11Buffer, ID3D11DepthStencilView, ID3D11Device,
+                    ID3D11DeviceContext, ID3D11InputLayout, ID3D11PixelShader,
+                    ID3D11RenderTargetView, ID3D11Texture2D, ID3D11VertexShader,
+                    D3D11_BIND_DEPTH_STENCIL, D3D11_BIND_FLAG, D3D11_BUFFER_DESC,
+                    D3D11_CPU_ACCESS_FLAG, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                    D3D11_CREATE_DEVICE_DEBUG, D3D11_DEPTH_STENCIL_VIEW_DESC,
+                    D3D11_DEPTH_STENCIL_VIEW_DESC_0, D3D11_DSV_DIMENSION_TEXTURE2D,
+                    D3D11_INPUT_ELEMENT_DESC, D3D11_INPUT_PER_VERTEX_DATA,
+                    D3D11_RENDER_TARGET_VIEW_DESC, D3D11_RENDER_TARGET_VIEW_DESC_0,
+                    D3D11_RESOURCE_MISC_FLAG, D3D11_RTV_DIMENSION_TEXTURE2D, D3D11_SDK_VERSION,
+                    D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+                    D3D11_USAGE_IMMUTABLE, D3D11_VIEWPORT,
                 },
                 Dxgi::{
                     Common::{
@@ -42,6 +43,7 @@ pub mod device_resources {
         pub device: ID3D11Device,
         pub context: ID3D11DeviceContext,
         pub swapchain: IDXGISwapChain1,
+        #[allow(dead_code)]
         factory: IDXGIFactory7,
         pub viewport: D3D11_VIEWPORT,
         pub dsv: ID3D11DepthStencilView,
@@ -194,6 +196,32 @@ pub mod device_resources {
                 ps: ps.unwrap(),
                 il: il.unwrap(),
             });
+        }
+
+        pub fn create_buffer<T>(
+            device: &ID3D11Device,
+            data: &Vec<T>,
+            bind_flag: D3D11_BIND_FLAG,
+        ) -> WinResult<ID3D11Buffer> {
+            let desc = D3D11_BUFFER_DESC {
+                ByteWidth: (data.len() * std::mem::size_of::<T>()) as u32,
+                Usage: D3D11_USAGE_IMMUTABLE,
+                BindFlags: bind_flag,
+                CPUAccessFlags: D3D11_CPU_ACCESS_FLAG(0),
+                MiscFlags: D3D11_RESOURCE_MISC_FLAG(0),
+                StructureByteStride: 0,
+            };
+
+            let init_data = D3D11_SUBRESOURCE_DATA {
+                pSysMem: data.as_ptr() as *const core::ffi::c_void,
+                SysMemPitch: 0,
+                SysMemSlicePitch: 0,
+            };
+            let mut buffer = None;
+            unsafe {
+                device.CreateBuffer(&desc, Some(&init_data), Some(&mut buffer))?;
+            };
+            Ok(buffer.unwrap())
         }
     }
 }
