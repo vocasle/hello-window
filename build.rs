@@ -1,49 +1,50 @@
 use std::ffi::OsString;
+use std::path::PathBuf;
 use std::process::Command;
 use std::{env, process};
 
 fn main() {
-    // println!("cargo:rerun-if-changed=src/shaders/vertex_shader.hlsl");
-    // println!("cargo:rerun-if-changed=src/shaders/pixel_shader.hlsl");
-    // println!("cargo:rerun-if-changed=src/shaders/shader.hlsli");
+    println!("cargo:rerun-if-changed=src/shaders/vertex_shader.hlsl");
+    println!("cargo:rerun-if-changed=src/shaders/pixel_shader.hlsl");
+    println!("cargo:rerun-if-changed=src/shaders/shader.hlsli");
 
-    let out_dir = env::var_os("OUT_DIR").unwrap();
     let manifest_dir = env::var_os("CARGO_MANIFEST_DIR").unwrap();
+    let profile = env::var_os("PROFILE").unwrap();
+    let out_dir = PathBuf::from(&manifest_dir).join("target").join(profile);
+    let shader_src_dir = PathBuf::from(&manifest_dir).join("src").join("shaders");
     let fxc_exe_path =
         "C:/\"Program Files (x86)\"/\"Windows Kits\"/10/bin/10.0.22000.0/x64/fxc.exe";
-
-    let mut shader_src_dir = manifest_dir;
-    shader_src_dir.push("\\src\\shaders");
-
-    let mut include_path = String::from("/I ");
-    include_path.push_str(&shader_src_dir.to_str().unwrap());
+    let include_path = vec!["/I", &shader_src_dir.to_str().unwrap()].join(" ");
 
     let paths = std::fs::read_dir(&shader_src_dir).unwrap();
-
     for path in paths {
         let entry = path.unwrap();
 
-        if entry.path().extension().unwrap() == OsString::from("hlsli") {
+        let is_header = match entry.path().extension() {
+            Some(ext) => ext == OsString::from("hlsli"),
+            None => true,
+        };
+
+        if is_header {
             continue;
         }
+        let original_path = entry.path();
+        let path = entry.path().with_extension("cso");
+        let out_filename = PathBuf::from(&out_dir).join(path.file_name().unwrap());
+        let out_name = vec!["/Fo", out_filename.to_str().unwrap()].join(" ");
 
-        let path = entry.path().with_extension("");
-        let filename = path.file_name().unwrap();
-        let filename = filename.to_str().unwrap();
-
-        let mut out_name = String::from("/Fo ");
-        out_name.push_str(out_dir.to_str().unwrap());
-        out_name.push_str("\\");
-        out_name.push_str(&filename);
-        out_name.push_str(".cso");
-
-        let shader_model = if filename.contains("vs") {
+        let shader_model = if original_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("vs.hlsl")
+        {
             "/T vs_5_0"
         } else {
             "/T ps_5_0"
         };
 
-        let path = entry.path();
         let args = vec![
             fxc_exe_path,
             &shader_model,
@@ -53,7 +54,7 @@ fn main() {
             "/WX",
             "/Zi",
             &out_name,
-            path.to_str().unwrap(),
+            original_path.to_str().unwrap(),
         ];
 
         let mut cmd = Command::new("cmd");
