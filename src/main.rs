@@ -2,7 +2,10 @@ use windows::{
     s,
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, S_OK, WPARAM},
-        Graphics::Direct3D11::{D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL},
+        Graphics::{
+            Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+            Direct3D11::{D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL},
+        },
         System::LibraryLoader::GetModuleHandleA,
         UI::WindowsAndMessaging::{
             CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, GetWindowLongPtrA,
@@ -45,7 +48,15 @@ unsafe extern "system" fn window_proc(
 
                     let clear_color = vec![1f32, 0f32, 0f32, 1f32];
                     dr.context
-                        .ClearRenderTargetView(&dr.rtv, clear_color.as_ptr());
+                        .ClearRenderTargetView(dr.rtv.get(0), clear_color.as_ptr());
+
+                    dr.context.VSSetShader(&dr.vs, None);
+                    dr.context.PSSetShader(&dr.ps, None);
+                    dr.context.IASetInputLayout(&dr.il);
+                    dr.context
+                        .IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                    dr.context.OMSetRenderTargets(Some(&dr.rtv), &dr.dsv);
+                    dr.context.RSSetViewports(Some(&[dr.viewport]));
 
                     if S_OK != dr.swapchain.Present(1, 0) {
                         panic!("Failed to present!");
