@@ -4,7 +4,12 @@ use windows::{
         Foundation::{HWND, LPARAM, LRESULT, S_OK, WPARAM},
         Graphics::{
             Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
-            Direct3D11::{D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL},
+            Direct3D11::{
+                ID3D11Buffer, ID3D11Device, D3D11_BIND_INDEX_BUFFER, D3D11_BIND_VERTEX_BUFFER,
+                D3D11_BUFFER_DESC, D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CPU_ACCESS_FLAG,
+                D3D11_RESOURCE_MISC_FLAG, D3D11_SUBRESOURCE_DATA, D3D11_USAGE_IMMUTABLE,
+            },
+            Dxgi::Common::DXGI_FORMAT_R32_UINT,
         },
         System::LibraryLoader::GetModuleHandleA,
         UI::WindowsAndMessaging::{
@@ -22,6 +27,70 @@ use crate::device_resources::device_resources::{DeviceResources, DEFAULT_HEIGHT,
 
 mod device_resources;
 
+struct Model {
+    num_indices: u32,
+    vb: Option<ID3D11Buffer>,
+    ib: ID3D11Buffer,
+}
+
+impl Model {
+    fn default(device: &ID3D11Device) -> WinResult<Self> {
+        let vertices: Vec<f32> = vec![-0.5, -0.5, 0.0, 0.0, 0.5, 0.0, 0.5, -0.5, 0.0];
+        let indices: Vec<u32> = vec![0, 1, 2];
+
+        let mut vb = None;
+        unsafe {
+            let desc = D3D11_BUFFER_DESC {
+                ByteWidth: (vertices.len() * std::mem::size_of::<f32>() * 3) as u32,
+                Usage: D3D11_USAGE_IMMUTABLE,
+                BindFlags: D3D11_BIND_VERTEX_BUFFER,
+                CPUAccessFlags: D3D11_CPU_ACCESS_FLAG::default(),
+                MiscFlags: D3D11_RESOURCE_MISC_FLAG::default(),
+                StructureByteStride: (std::mem::size_of::<f32>() * 3) as u32,
+            };
+
+            let init_data = D3D11_SUBRESOURCE_DATA {
+                pSysMem: &vertices as *const _ as _,
+                SysMemPitch: 0,
+                SysMemSlicePitch: 0,
+            };
+
+            device.CreateBuffer(&desc, Some(&init_data), Some(&mut vb))?;
+        }
+
+        let mut ib = None;
+        unsafe {
+            let desc = D3D11_BUFFER_DESC {
+                ByteWidth: (indices.len() * std::mem::size_of::<u32>() * 3) as u32,
+                Usage: D3D11_USAGE_IMMUTABLE,
+                BindFlags: D3D11_BIND_INDEX_BUFFER,
+                CPUAccessFlags: D3D11_CPU_ACCESS_FLAG::default(),
+                MiscFlags: D3D11_RESOURCE_MISC_FLAG::default(),
+                StructureByteStride: (std::mem::size_of::<u32>() * 3) as u32,
+            };
+
+            let init_data = D3D11_SUBRESOURCE_DATA {
+                pSysMem: &indices as *const _ as _,
+                SysMemPitch: 0,
+                SysMemSlicePitch: 0,
+            };
+
+            device.CreateBuffer(&desc, Some(&init_data), Some(&mut ib))?;
+        }
+
+        Ok(Model {
+            num_indices: indices.len() as u32,
+            vb: vb,
+            ib: ib.unwrap(),
+        })
+    }
+}
+
+struct App {
+    dr: DeviceResources,
+    model: Model,
+}
+
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
     u_msg: u32,
@@ -36,8 +105,9 @@ unsafe extern "system" fn window_proc(
         WM_PAINT => {
             unsafe {
                 let ptr = GetWindowLongPtrA(hwnd, GWLP_USERDATA);
-                if let Some(dr) = std::ptr::NonNull::<DeviceResources>::new(ptr as _) {
-                    let dr = dr.as_ref();
+                if let Some(dr) = std::ptr::NonNull::<App>::new(ptr as _) {
+                    let app = dr.as_ref();
+                    let dr = &app.dr;
 
                     dr.context.ClearDepthStencilView(
                         &dr.dsv,
@@ -57,6 +127,18 @@ unsafe extern "system" fn window_proc(
                         .IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                     dr.context.OMSetRenderTargets(Some(&dr.rtv), &dr.dsv);
                     dr.context.RSSetViewports(Some(&[dr.viewport]));
+                    let strides = (std::mem::size_of::<f32>() * 3) as u32;
+                    let offsets = 0u32;
+                    dr.context.IASetVertexBuffers(
+                        0,
+                        1,
+                        Some(&app.model.vb),
+                        Some(&strides),
+                        Some(&offsets),
+                    );
+                    dr.context
+                        .IASetIndexBuffer(&app.model.ib, DXGI_FORMAT_R32_UINT, 0);
+                    dr.context.DrawIndexed(app.model.num_indices, 0, 0);
 
                     if S_OK != dr.swapchain.Present(1, 0) {
                         panic!("Failed to present!");
@@ -107,9 +189,14 @@ fn main() -> WinResult<()> {
     }
 
     let device_resources = DeviceResources::bind_to_wnd(hwnd)?;
+    let model = Model::default(&device_resources.device)?;
+    let app = App {
+        dr: device_resources,
+        model,
+    };
 
     unsafe {
-        SetWindowLongPtrA(hwnd, GWLP_USERDATA, &device_resources as *const _ as _);
+        SetWindowLongPtrA(hwnd, GWLP_USERDATA, &app as *const _ as _);
     }
 
     let mut msg = MSG::default();
