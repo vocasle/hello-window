@@ -6,9 +6,12 @@ use windows::{
             Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
             Direct3D11::{
                 ID3D11Buffer, ID3D11Device, D3D11_BIND_INDEX_BUFFER, D3D11_BIND_VERTEX_BUFFER,
-                D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL,
+                D3D11_BUFFER_DESC, D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CPU_ACCESS_FLAG,
+                D3D11_RESOURCE_MISC_FLAG, D3D11_SUBRESOURCE_DATA, D3D11_USAGE_IMMUTABLE,
             },
-            Dxgi::Common::DXGI_FORMAT_R32_UINT,
+            Dxgi::Common::{
+                DXGI_FORMAT, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32_UINT, DXGI_FORMAT_UNKNOWN,
+            },
         },
         System::LibraryLoader::GetModuleHandleA,
         UI::WindowsAndMessaging::{
@@ -47,6 +50,7 @@ struct Model {
     num_indices: u32,
     vb: Option<ID3D11Buffer>,
     ib: ID3D11Buffer,
+    ib_format: DXGI_FORMAT,
 }
 
 #[allow(dead_code)]
@@ -84,6 +88,107 @@ impl Model {
             num_indices: indices.len() as u32,
             vb: Some(vb),
             ib: ib,
+            ib_format: DXGI_FORMAT_R32_UINT,
+        })
+    }
+
+    fn from_gltf(path: &str, device: &ID3D11Device) -> WinResult<Self> {
+        let mut ib = None;
+        let mut vb = None;
+        let mut num_indices: u32 = 0;
+        let mut ib_format = DXGI_FORMAT_UNKNOWN;
+
+        let (doc, buffers, images) = gltf::import(path).unwrap();
+
+        for scene in doc.scenes() {
+            for node in scene.nodes() {
+                if let Some(mesh) = node.mesh() {
+                    for prim in mesh.primitives() {
+                        if let Some(acc) = prim.indices() {
+                            let view = acc.view().unwrap();
+                            let buff = &buffers[view.buffer().index()];
+                            num_indices = acc.count() as u32;
+
+                            ib_format = match acc.data_type() {
+                                gltf::accessor::DataType::U16 => DXGI_FORMAT_R16_UINT,
+                                gltf::accessor::DataType::U32 => DXGI_FORMAT_R32_UINT,
+                                _ => panic!("Unexpected data type for index buffer"),
+                            };
+
+                            let desc = D3D11_BUFFER_DESC {
+                                ByteWidth: view.length() as u32,
+                                Usage: D3D11_USAGE_IMMUTABLE,
+                                BindFlags: D3D11_BIND_INDEX_BUFFER,
+                                CPUAccessFlags: D3D11_CPU_ACCESS_FLAG(0),
+                                MiscFlags: D3D11_RESOURCE_MISC_FLAG(0),
+                                StructureByteStride: 0,
+                            };
+
+                            let init_data = D3D11_SUBRESOURCE_DATA {
+                                pSysMem: (unsafe {
+                                    buff.0
+                                        .as_ptr()
+                                        .offset((acc.offset() + view.offset()) as isize)
+                                }) as *const _ as _,
+                                SysMemPitch: 0,
+                                SysMemSlicePitch: 0,
+                            };
+
+                            result!(unsafe {
+                                device.CreateBuffer(&desc, Some(&init_data), Some(&mut ib))
+                            });
+                        }
+
+                        for (sem, acc) in prim.attributes() {
+                            match sem {
+                                gltf::Semantic::Positions => {
+                                    let view = acc.view().unwrap();
+                                    let buff = &buffers[view.buffer().index()];
+
+                                    let desc = D3D11_BUFFER_DESC {
+                                        ByteWidth: view.length() as u32,
+                                        Usage: D3D11_USAGE_IMMUTABLE,
+                                        BindFlags: D3D11_BIND_VERTEX_BUFFER,
+                                        CPUAccessFlags: D3D11_CPU_ACCESS_FLAG(0),
+                                        MiscFlags: D3D11_RESOURCE_MISC_FLAG(0),
+                                        StructureByteStride: 0,
+                                    };
+
+                                    let init_data = D3D11_SUBRESOURCE_DATA {
+                                        pSysMem: (unsafe {
+                                            buff.0
+                                                .as_ptr()
+                                                .offset((acc.offset() + view.offset()) as isize)
+                                        })
+                                            as *const _
+                                            as _,
+                                        SysMemPitch: 0,
+                                        SysMemSlicePitch: 0,
+                                    };
+
+                                    result!(unsafe {
+                                        device.CreateBuffer(&desc, Some(&init_data), Some(&mut vb))
+                                    });
+                                }
+                                gltf::Semantic::Normals => todo!(),
+                                gltf::Semantic::Tangents => todo!(),
+                                gltf::Semantic::Colors(_) => todo!(),
+                                gltf::Semantic::TexCoords(_) => todo!(),
+                                gltf::Semantic::Joints(_) => todo!(),
+                                gltf::Semantic::Weights(_) => todo!(),
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        }
+
+        Ok(Model {
+            num_indices,
+            vb: vb,
+            ib: ib.unwrap(),
+            ib_format,
         })
     }
 }
@@ -139,7 +244,7 @@ unsafe extern "system" fn window_proc(
                         Some(&offsets),
                     );
                     dr.context
-                        .IASetIndexBuffer(&app.model.ib, DXGI_FORMAT_R32_UINT, 0);
+                        .IASetIndexBuffer(&app.model.ib, app.model.ib_format, 0);
                     dr.context.DrawIndexed(app.model.num_indices, 0, 0);
 
                     if S_OK != dr.swapchain.Present(1, 0) {
@@ -197,7 +302,10 @@ fn main() -> WinResult<()> {
     }
 
     let device_resources = DeviceResources::bind_to_wnd(hwnd)?;
-    let model = Model::default(&device_resources.device)?;
+    let model = Model::from_gltf(
+        "C:\\Source\\glTF-Sample-Models\\2.0\\Triangle\\glTF\\Triangle.gltf",
+        &device_resources.device,
+    )?;
     let app = App {
         dr: device_resources,
         model,
