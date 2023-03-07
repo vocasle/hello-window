@@ -15,7 +15,7 @@ use windows::{
             CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, GetWindowLongPtrA,
             PostQuitMessage, RegisterClassA, SetWindowLongPtrA, ShowWindow, TranslateMessage,
             CW_USEDEFAULT, GWLP_USERDATA, MSG, SW_SHOWDEFAULT, WINDOW_EX_STYLE, WM_DESTROY,
-            WM_PAINT, WM_QUIT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+            WM_KEYDOWN, WM_PAINT, WM_QUIT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
         },
     },
 };
@@ -146,6 +146,12 @@ unsafe extern "system" fn window_proc(
                         panic!("Failed to present!");
                     }
                 }
+            }
+            LRESULT(0)
+        }
+        WM_KEYDOWN => {
+            if w_param == WPARAM(0x1B) {
+                unsafe { PostQuitMessage(0) }
             }
             LRESULT(0)
         }
