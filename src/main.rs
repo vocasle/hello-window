@@ -1,13 +1,16 @@
+use glm::GenSquareMat;
 use windows::{
     s,
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, S_OK, WPARAM},
+        Foundation::{BOOL, HWND, LPARAM, LRESULT, S_OK, WPARAM},
         Graphics::{
             Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
             Direct3D11::{
-                ID3D11Buffer, ID3D11Device, D3D11_BIND_INDEX_BUFFER, D3D11_BIND_VERTEX_BUFFER,
-                D3D11_BUFFER_DESC, D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CPU_ACCESS_FLAG,
-                D3D11_RESOURCE_MISC_FLAG, D3D11_SUBRESOURCE_DATA, D3D11_USAGE_IMMUTABLE,
+                ID3D11Buffer, ID3D11Device, ID3D11RasterizerState, D3D11_BIND_INDEX_BUFFER,
+                D3D11_BIND_VERTEX_BUFFER, D3D11_BUFFER_DESC, D3D11_CLEAR_DEPTH,
+                D3D11_CLEAR_STENCIL, D3D11_CPU_ACCESS_FLAG, D3D11_CULL_BACK, D3D11_FILL_SOLID,
+                D3D11_RASTERIZER_DESC, D3D11_RESOURCE_MISC_FLAG, D3D11_SUBRESOURCE_DATA,
+                D3D11_USAGE_IMMUTABLE,
             },
             Dxgi::Common::{
                 DXGI_FORMAT, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32_UINT, DXGI_FORMAT_UNKNOWN,
@@ -51,6 +54,7 @@ struct Model {
     vb: Option<ID3D11Buffer>,
     ib: ID3D11Buffer,
     ib_format: DXGI_FORMAT,
+    is_ccw: bool,
 }
 
 #[allow(dead_code)]
@@ -89,6 +93,7 @@ impl Model {
             vb: Some(vb),
             ib: ib,
             ib_format: DXGI_FORMAT_R32_UINT,
+            is_ccw: false,
         })
     }
 
@@ -97,11 +102,18 @@ impl Model {
         let mut vb = None;
         let mut num_indices: u32 = 0;
         let mut ib_format = DXGI_FORMAT_UNKNOWN;
+        let mut is_ccw = false;
 
         let (doc, buffers, images) = gltf::import(path).unwrap();
 
         for scene in doc.scenes() {
             for node in scene.nodes() {
+                let t = &node.transform().matrix();
+                let tform = glm::mat4(
+                    t[0][0], t[0][1], t[0][2], t[0][3], t[1][0], t[1][1], t[1][2], t[1][3],
+                    t[2][0], t[2][1], t[2][2], t[2][3], t[3][0], t[3][1], t[3][2], t[3][3],
+                );
+                is_ccw = tform.determinant() > 0.0;
                 if let Some(mesh) = node.mesh() {
                     for prim in mesh.primitives() {
                         if let Some(acc) = prim.indices() {
@@ -189,6 +201,7 @@ impl Model {
             vb: vb,
             ib: ib.unwrap(),
             ib_format,
+            is_ccw,
         })
     }
 }
@@ -196,6 +209,7 @@ impl Model {
 struct App {
     dr: DeviceResources,
     model: Model,
+    rs: Option<ID3D11RasterizerState>,
 }
 
 unsafe extern "system" fn window_proc(
@@ -212,8 +226,8 @@ unsafe extern "system" fn window_proc(
         WM_PAINT => {
             unsafe {
                 let ptr = GetWindowLongPtrA(hwnd, GWLP_USERDATA);
-                if let Some(dr) = std::ptr::NonNull::<App>::new(ptr as _) {
-                    let app = dr.as_ref();
+                if let Some(mut app) = std::ptr::NonNull::<App>::new(ptr as _) {
+                    let app = app.as_mut();
                     let dr = &app.dr;
 
                     dr.context.ClearDepthStencilView(
@@ -245,6 +259,23 @@ unsafe extern "system" fn window_proc(
                     );
                     dr.context
                         .IASetIndexBuffer(&app.model.ib, app.model.ib_format, 0);
+
+                    if app.rs.is_none() {
+                        let desc = D3D11_RASTERIZER_DESC {
+                            FillMode: D3D11_FILL_SOLID,
+                            CullMode: D3D11_CULL_BACK,
+                            FrontCounterClockwise: BOOL::from(app.model.is_ccw),
+                            DepthBias: 0,
+                            DepthBiasClamp: 0f32,
+                            SlopeScaledDepthBias: 0f32,
+                            DepthClipEnable: BOOL::from(false),
+                            ScissorEnable: BOOL::from(false),
+                            MultisampleEnable: BOOL::from(false),
+                            AntialiasedLineEnable: BOOL::from(false),
+                        };
+                        result!(dr.device.CreateRasterizerState(&desc, Some(&mut app.rs)));
+                    }
+                    dr.context.RSSetState(app.rs.as_ref().unwrap());
                     dr.context.DrawIndexed(app.model.num_indices, 0, 0);
 
                     if S_OK != dr.swapchain.Present(1, 0) {
@@ -309,6 +340,7 @@ fn main() -> WinResult<()> {
     let app = App {
         dr: device_resources,
         model,
+        rs: None,
     };
 
     unsafe {
