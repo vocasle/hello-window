@@ -1,5 +1,3 @@
 ### hello-window
 
-My attempt to combine DX11 and Rust.
-
-The main goal is to implement skinning.
+Just a simple triangle renderer based on windows-rs and DirectX 11.
